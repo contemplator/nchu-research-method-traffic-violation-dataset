@@ -1,0 +1,126 @@
+# NCHU Research Method - Taiwan Traffic Violation Dataset & Pipeline
+
+[![Course](https://img.shields.io/badge/NCHU-Research%20Methodology-blue.svg)](https://www.nchu.edu.tw/)
+[![Model Architecture](https://img.shields.io/badge/Framework-YOLOv7-green.svg)](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
+[![License](https://img.shields.io/badge/License-Academic%20Use%20Only-orange.svg)](#)
+
+本專案為國立中興大學「**研究方法 (Research Methodology)**」期末專題（Part 2: Detection with YOLO）之資料工程、前處理工具與消融實驗管理儲存庫。
+
+針對台灣市區常見之交通違規停車痛點，本專案建置客製化標註資料集，並搭配 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model) 於 Google Colab 進行深度學習消融實驗（Ablation Study）與行車記錄器動態影片推論。
+
+---
+
+## 📌 專案目錄結構 (Repository Structure)
+
+```text
+nchu-research-method-traffic-violation-dataset/
+├── README.md                           # [本文件] 專案總覽與資料集說明
+├── requirements.txt                    # 前處理與輔助工具依賴套件
+├── configs/
+│   ├── traffic_violation.yaml          # YOLOv7 資料集定義設定檔 (路徑與 4 類別)
+│   ├── hyp.scratch.custom.yaml         # 消融實驗自訂超參數設定檔
+│   └── yolov7-tiny-custom.yaml         # 自訂模型架構檔 (nc=4)
+├── scripts/
+│   ├── extract_frames.py               # 行車記錄器影片定頻抽幀工具
+│   ├── verify_annotations.py           # 標註格式合規性檢查與防呆工具
+│   ├── split_dataset.py                # 7:2:1 (Train/Val/Test) 隨機切分工具
+│   └── export_metrics.py               # 實驗圖表與指標匯出工具
+├── notebooks/
+│   └── NCHU_Research_YOLOv7.ipynb      # Google Colab 雲端訓練與評估標準筆記本
+├── data/
+│   ├── raw/                            # 原始拍攝照片與未標註抽幀圖
+│   ├── annotated/                      # 本地標註完成之圖片與同名 .txt 標籤檔
+│   └── dataset/                        # 切分後之標準 YOLO 格式 (train/val/test)
+├── sample_videos/                      # 測試用台灣市區行車記錄器短片
+└── results/                            # 消融實驗輸出圖表、混淆矩陣與最佳權重備份
+```
+
+---
+
+## 🏷️ 標註類別定義 (Target Classes)
+
+本資料集定義台灣道路情境最常見之 **4 大違規停放類別**，統一採用 YOLO 正規化標註格式：
+
+| 類別 ID (`class_id`) | 標籤名稱 (`name`) | 中文類別 | 標註要點與邊界框規範 |
+| :---: | :--- | :--- | :--- |
+| **0** | `red_line_parking` | 紅線違規停車 | 車體輪廓與路側紅實線緊鄰或重疊之違停汽機車。 |
+| **1** | `double_parking` | 並排違規停車 | 車輛停於車道外側，且其同側路旁已有停放車輛（平行並排佔用車道）。 |
+| **2** | `yellow_box_parking` | 黃網線臨時暫停 | 靜止停滯於路口或特種出入口黃色網格劃設區內之車輛。 |
+| **3** | `sidewalk_parking` | 人行道/騎樓違停 | 違規停放於標線型綠底人行道、實體人行道或人行騎樓內之車輛。 |
+
+* **標籤格式**：每一行代表一個目標，數值經圖片長寬正規化至 `[0, 1]` 區間：
+  ```text
+  <class_id> <x_center> <y_center> <width> <height>
+  ```
+
+---
+
+## 📊 資料集規模與劃分 (Dataset Scale & Split)
+
+* **目標資料量**：150 ~ 250 張真實道路影像（實地手機街拍 + 行車記錄器抽幀各約 50%）。
+* **目標標註框數量**：每類別累積 40 ~ 70 個標註目標（Instances）。
+* **切分比例**：
+  * **Train (訓練集)**：70%
+  * **Val (驗證集)**：20%
+  * **Test (測試集)**：10%
+
+---
+
+## 🛠️ 本地資料處理工作流程 (Data Preprocessing Workflow)
+
+### 1. 安裝環境依賴
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 影片抽幀收集
+```bash
+python scripts/extract_frames.py --video sample_videos/dashcam.mp4 --output data/raw/ --interval 2
+```
+
+### 3. 本地影像標註
+推薦使用 **[AnyLabeling](https://github.com/vietanhdev/anylabeling)** 或 **[LabelImg](https://github.com/HumanSignal/labelImg)**，標籤格式選擇 **YOLO**，標註完成後將圖檔與 `.txt` 存放於 `data/annotated/`。
+
+### 4. 標註資料防呆檢驗
+執行檢查腳本，確認無缺漏標註、無孤兒檔且數值介於 `0.0 ~ 1.0`：
+```bash
+python scripts/verify_annotations.py --data_dir data/annotated/
+```
+
+### 5. 資料集隨機切分
+依 7:2:1 自動切分至 `data/dataset/{train,val,test}`：
+```bash
+python scripts/split_dataset.py --input data/annotated/ --output data/dataset/
+```
+
+---
+
+## 🔬 消融實驗規劃 (Ablation Study Matrix)
+
+依據期末報告規定，於 Google Colab 執行 4 組系統化消融對比實驗：
+
+| 組別 | 模型架構 (Model) | 訓練輪數 (Epochs) | Batch | 實驗探討目標 | 評估指標 |
+| :---: | :--- | :---: | :---: | :--- | :--- |
+| **Exp 1** | YOLOv7-tiny | 50 | 16 | 輕量輕量模型基準線 (Baseline) | Params, FLOPs, mAP@0.5 |
+| **Exp 2** | YOLOv7 Base | 50 | 8 | 骨幹模型尺度對微小/遮擋目標召回效益 | mAP 增幅 vs. 運算時間 |
+| **Exp 3** | 最佳模型 (選 Exp 1/2) | 100 | 16 | 擴增訓練輪數之充分收斂性與過擬合檢視 | Loss 收斂曲線、mAP |
+| **Exp 4** | 最佳模型 | 100 | 16 | 自訂超參數 (學習率調校 + Mosaic 增強) | 最終 mAP@[0.5:0.95]、混淆矩陣 |
+
+---
+
+## 🚀 Google Colab 雲端訓練操作簡介
+
+1. 將切分完畢之 `data/dataset/` 打包為 `dataset.zip` 上傳至個人的 Google Drive。
+2. 開啟 `notebooks/NCHU_Research_YOLOv7.ipynb`。
+3. 依序執行儲存格：
+   * 掛載 Google Drive
+   * Clone 模型倉庫 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
+   * 解壓縮資料集並啟動消融訓練腳本
+   * 運行 `detect.py` 進行行車記錄器影片推論並打包成果回傳
+
+---
+
+## 🔗 相關專案連結
+
+* 模型庫：[contemplator/nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
+* 上游官方庫：[WongKinYiu/yolov7](https://github.com/WongKinYiu/yolov7)

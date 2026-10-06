@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Data & Large Archives (Do not commit raw images or huge zips to git)
+data/raw/
+data/dataset/
+*.zip
+*.tar.gz
+*.7z
+
+# Model weights & training outputs
+*.pt
+*.onnx
+runs/
+weights/
+
+# Keep empty folder structures with .gitkeep
+!.gitkeep
+!configs/
+!scripts/
+!notebooks/
