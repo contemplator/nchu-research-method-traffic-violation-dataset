@@ -1,0 +1,14 @@
+# NCHU Research Method - Taiwan Traffic Violation Dataset Config
+# 4 Classes: red_line_parking, double_parking, yellow_box_parking, sidewalk_parking
+
+# Dataset paths: Relative to execution directory or absolute paths
+# When training in yolov7 directory, paths point to dataset repo:
+train: ../nchu-research-method-traffic-violation-dataset/data/dataset/train/images
+val: ../nchu-research-method-traffic-violation-dataset/data/dataset/val/images
+test: ../nchu-research-method-traffic-violation-dataset/data/dataset/test/images
+
+# Number of classes
+nc: 4
+
+# Class names
+names: ['red_line_parking', 'double_parking', 'yellow_box_parking', 'sidewalk_parking']
