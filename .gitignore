@@ -12,6 +12,7 @@ Thumbs.db
 
 # Data & Large Archives (Do not commit raw images or huge zips to git)
 data/raw/
+data/annotated/
 data/dataset/
 *.zip
 *.tar.gz
@@ -22,6 +23,8 @@ data/dataset/
 *.onnx
 runs/
 weights/
+results/*
+!results/.gitkeep
 
 # Keep empty folder structures with .gitkeep
 !.gitkeep
