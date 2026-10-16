@@ -3,6 +3,7 @@
 [![Course](https://img.shields.io/badge/NCHU-Research%20Methodology-blue.svg)](https://www.nchu.edu.tw/)
 [![Model Architecture](https://img.shields.io/badge/Framework-YOLOv7-green.svg)](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
 [![License](https://img.shields.io/badge/License-Academic%20Use%20Only-orange.svg)](#)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/main/notebooks/NCHU_Research_YOLOv7.ipynb)
 
 本專案為國立中興大學「**研究方法 (Research Methodology)**」期末專題（Part 2: Detection with YOLO）之資料工程、前處理工具與消融實驗管理儲存庫。
 
@@ -125,8 +126,10 @@ python scripts/split_dataset.py
 
 ## 🚀 Google Colab 雲端訓練操作簡介
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/main/notebooks/NCHU_Research_YOLOv7.ipynb)
+
 1. 將本地一鍵生成之 **`data/dataset.zip`** 直接上傳至個人 Google Drive 根目錄（或指定目錄）。
-2. 開啟 `notebooks/NCHU_Research_YOLOv7.ipynb`。
+2. 點擊上方按鈕直接於 Google Colab 開啟 [notebooks/NCHU_Research_YOLOv7.ipynb](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/main/notebooks/NCHU_Research_YOLOv7.ipynb)。
 3. 依序執行儲存格：
    * 掛載 Google Drive
    * Clone 模型倉庫 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
