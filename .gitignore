@@ -13,6 +13,7 @@ Thumbs.db
 # Data & Large Archives (Do not commit raw images or huge zips to git)
 data/raw/
 data/annotated/
+data/labels/
 data/dataset/
 *.zip
 *.tar.gz

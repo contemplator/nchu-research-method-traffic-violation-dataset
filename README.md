@@ -29,8 +29,10 @@ nchu-research-method-traffic-violation-dataset/
 │   └── NCHU_Research_YOLOv7.ipynb      # Google Colab 雲端訓練與評估標準筆記本
 ├── data/
 │   ├── raw/                            # 原始拍攝照片與未標註抽幀圖
-│   ├── annotated/                      # 本地標註完成之圖片與同名 .txt 標籤檔
-│   └── dataset/                        # 切分後之標準 YOLO 格式 (train/val/test)
+│   ├── annotated/                      # 待標註/已標註之有效圖片 (.jpg)
+│   ├── labels/                         # X-AnyLabeling 匯出之 YOLO 標籤檔 (.txt)
+│   ├── dataset/                        # 切分後之標準 YOLO 格式 (train/val/test)
+│   └── dataset.zip                     # 一鍵自動打包產生之雲端訓練壓縮檔
 ├── sample_videos/                      # 測試用台灣市區行車記錄器短片
 └── results/                            # 消融實驗輸出圖表、混淆矩陣與最佳權重備份
 ```
@@ -78,20 +80,23 @@ pip install -r requirements.txt
 python scripts/extract_frames.py --video sample_videos/dashcam.mp4 --output data/raw/ --interval 2
 ```
 
-### 3. 本地影像標註
-推薦使用 **[AnyLabeling](https://github.com/vietanhdev/anylabeling)** 或 **[LabelImg](https://github.com/HumanSignal/labelImg)**，標籤格式選擇 **YOLO**，標註完成後將圖檔與 `.txt` 存放於 `data/annotated/`。
+### 3. 本地影像標註與匯出
+推薦使用 **[X-AnyLabeling](https://github.com/CVHub520/X-AnyLabeling)**：
+- 開啟圖片目錄：`data/annotated/`。
+- 標註完成後，點擊 **「導出」$\rightarrow$「YOLO HBB」**，指定輸出目錄為 **`data/labels/`**（X-AnyLabeling 預設目錄，符合其不允許覆蓋圖片目錄之安全規範）。
 
 ### 4. 標註資料防呆檢驗
-執行檢查腳本，確認無缺漏標註、無孤兒檔且數值介於 `0.0 ~ 1.0`：
+執行檢查腳本，自動配對圖片與標籤，確認無缺漏、無孤兒檔且數值介於 `0.0 ~ 1.0`：
 ```bash
-python scripts/verify_annotations.py --data_dir data/annotated/
+python scripts/verify_annotations.py
 ```
 
-### 5. 資料集隨機切分
-依 7:2:1 自動切分至 `data/dataset/{train,val,test}`：
+### 5. 一鍵資料集切分與打包
+依 7:2:1 自動切分至 `data/dataset/{train,val,test}`，並**自動生成 `data/dataset.zip`**：
 ```bash
-python scripts/split_dataset.py --input data/annotated/ --output data/dataset/
+python scripts/split_dataset.py
 ```
+*(產生之 `data/dataset.zip` 可直接上傳至個人 Google Drive 供 Colab 雲端消融訓練)*
 
 ---
 
