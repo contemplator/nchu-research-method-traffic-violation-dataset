@@ -4,6 +4,7 @@
 [![Model Architecture](https://img.shields.io/badge/Framework-YOLOv7-green.svg)](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
 [![License](https://img.shields.io/badge/License-Academic%20Use%20Only-orange.svg)](#)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/main/notebooks/NCHU_Research_YOLOv7.ipynb)
+[![Notion Guide](https://img.shields.io/badge/Notion-YOLO7%20操作指南-000000.svg?logo=notion&logoColor=white)](https://app.notion.com/p/YOLO7-3fafe2e0792381c680b2c415a192ccd3?source=copy_link)
 
 本專案為國立中興大學「**研究方法 (Research Methodology)**」期末專題（Part 2: Detection with YOLO）之資料工程、前處理工具與消融實驗管理儲存庫。
 
@@ -70,6 +71,8 @@ nchu-research-method-traffic-violation-dataset/
 ---
 
 ## 🛠️ 本地資料處理工作流程 (Data Preprocessing Workflow)
+
+> 📖 **完整圖文手冊**：詳細的 X-AnyLabeling 介面設定、標註標準與常見問題避坑，請同步參閱 [Notion - YOLO7 操作指南](https://app.notion.com/p/YOLO7-3fafe2e0792381c680b2c415a192ccd3?source=copy_link)。
 
 ### 1. 安裝環境依賴
 ```bash
@@ -140,5 +143,6 @@ python scripts/split_dataset.py
 
 ## 🔗 相關專案連結
 
+* 📖 團隊操作指南：[Notion - YOLO7 操作指南 (完整圖文手冊)](https://app.notion.com/p/YOLO7-3fafe2e0792381c680b2c415a192ccd3?source=copy_link)
 * 模型庫：[contemplator/nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
 * 上游官方庫：[WongKinYiu/yolov7](https://github.com/WongKinYiu/yolov7)
