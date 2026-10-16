@@ -82,21 +82,31 @@ python scripts/extract_frames.py --video sample_videos/dashcam.mp4 --output data
 
 ### 3. 本地影像標註與匯出
 推薦使用 **[X-AnyLabeling](https://github.com/CVHub520/X-AnyLabeling)**：
-- 開啟圖片目錄：`data/annotated/`。
-- 標註完成後，點擊 **「導出」$\rightarrow$「YOLO HBB」**，指定輸出目錄為 **`data/labels/`**（X-AnyLabeling 預設目錄，符合其不允許覆蓋圖片目錄之安全規範）。
+- **開啟圖片目錄**：`data/annotated/`。
+- **標註規範**：繪製矩形框緊貼車體輪廓，依序標註 4 大違規類別。
+- **匯出 YOLO HBB 標籤**：
+  - 點擊 **「導出」$\rightarrow$「YOLO HBB」**。
+  - **選取類別定義檔**：選擇 `data/annotated/classes.txt`（作為文字標籤轉譯為 0~3 數字代號之對照字典）。
+  - **導出路徑**：選擇 **`data/labels/`**（X-AnyLabeling 預設路徑，避免覆蓋原圖目錄）。
+  - **「同時保存圖片？」**：**不用勾選**（原圖已在 `annotated/`，無需重複複製）。
 
 ### 4. 標註資料防呆檢驗
-執行檢查腳本，自動配對圖片與標籤，確認無缺漏、無孤兒檔且數值介於 `0.0 ~ 1.0`：
+執行檢查腳本，自動跨目錄比對圖片與標籤，確認無缺漏、無孤兒檔且數值介於 `0.0 ~ 1.0`：
 ```bash
 python scripts/verify_annotations.py
 ```
+- **核心功能**：自動抓取 `data/annotated/`（圖片）與 `data/labels/`（標籤）進行成對校驗。
+- **檢查重點**：確認輸出「0 錯誤」，且終端機顯示各類別數量統計分佈。
 
-### 5. 一鍵資料集切分與打包
-依 7:2:1 自動切分至 `data/dataset/{train,val,test}`，並**自動生成 `data/dataset.zip`**：
+### 5. 一鍵資料集切分與自動打包
+依 7:2:1 自動隨機切分至 `data/dataset/{train,val,test}`，並**自動生成 `data/dataset.zip`**：
 ```bash
 python scripts/split_dataset.py
 ```
-*(產生之 `data/dataset.zip` 可直接上傳至個人 Google Drive 供 Colab 雲端消融訓練)*
+- **全自動固定邏輯流程**：
+  1. 自動讀取 `data/annotated/` 與 `data/labels/` 並成對合併。
+  2. 依 7:2:1 比例隨機切分至 `data/dataset/train/`、`val/`、`test/`。
+  3. 自動使用純 Python 壓縮打包產出 **`data/dataset.zip`**（跨平台標準，內含標準 `dataset/` 頂層結構，免除手動 zip 操作）。
 
 ---
 
@@ -115,13 +125,13 @@ python scripts/split_dataset.py
 
 ## 🚀 Google Colab 雲端訓練操作簡介
 
-1. 將切分完畢之 `data/dataset/` 打包為 `dataset.zip` 上傳至個人的 Google Drive。
+1. 將本地一鍵生成之 **`data/dataset.zip`** 直接上傳至個人 Google Drive 根目錄（或指定目錄）。
 2. 開啟 `notebooks/NCHU_Research_YOLOv7.ipynb`。
 3. 依序執行儲存格：
    * 掛載 Google Drive
    * Clone 模型倉庫 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model)
-   * 解壓縮資料集並啟動消融訓練腳本
-   * 運行 `detect.py` 進行行車記錄器影片推論並打包成果回傳
+   * 自動解壓縮 `dataset.zip` 並啟動 4 組消融訓練儲存格
+   * 運行 `detect.py` 進行行車記錄器影片推論並一鍵打包回傳成果 (`results_summary.zip`)
 
 ---
 
