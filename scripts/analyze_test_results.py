@@ -26,8 +26,17 @@ DEFAULT_CLASSES = [
 
 def load_classes(classes_path):
     if classes_path and os.path.exists(classes_path):
+        if classes_path.endswith(('.yaml', '.yml')):
+            try:
+                import yaml
+                with open(classes_path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, dict) and 'names' in data:
+                    return list(data['names'])
+            except Exception:
+                pass
         with open(classes_path, 'r', encoding='utf-8') as f:
-            lines = [l.strip() for l in f if l.strip()]
+            lines = [l.strip() for l in f if l.strip() and not l.strip().startswith('#')]
         if lines:
             return lines
     return DEFAULT_CLASSES
@@ -191,23 +200,25 @@ def print_readable_report(summary_stats, image_details):
         prec = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
         print(f"{cname:<24} | {gt:>4} | {tp:>9} | {fn:>9} | {fp:>9} | {recall:>6.1f}% | {prec:>8.1f}%")
 
-    # List top images with FN (missed) or FP (false alarms)
-    troubles = [img for img in image_details if img['fn'] > 0 or img['fp'] > 0]
-    print(f"\n⚠️ 需要注意的重點分析樣本 (共 {len(troubles)} 張有漏抓或誤判):")
+    # Print per-image breakdown of all test images
+    print(f"\n📸 測試集 16 張影像逐張偵測明細 (Per-Image Detection Summary):")
     print("-" * 70)
-    for t in troubles[:8]:
-        issues = []
-        if t['fn_details']:
-            issues.append(f"漏抓: {', '.join(t['fn_details'])}")
-        if t['fp_details']:
-            fps = [f"{c}(conf {conf:.2f})" for c, conf in t['fp_details']]
-            issues.append(f"誤判: {', '.join(fps)}")
-        if t['mismatch_details']:
-            mm = [f"真值{g}->預測{p}" for g, p, iou, conf in t['mismatch_details']]
-            issues.append(f"類別混淆: {', '.join(mm)}")
-        print(f"• {t['image']}: {' | '.join(issues)}")
-    if len(troubles) > 8:
-        print(f"  ... 其餘 {len(troubles) - 8} 張已省略 (完整成果已儲存)")
+    for img in image_details:
+        parts = []
+        if img['tp_details']:
+            tps = [f"{c}({conf:.2f})" for c, iou, conf in img['tp_details']]
+            parts.append(f"✅抓到({len(tps)}): {', '.join(tps)}")
+        else:
+            parts.append("✅抓到(0)")
+        if img['mismatch_details']:
+            mm = [f"真值{g}->預測{p}({conf:.2f})" for g, p, iou, conf in img['mismatch_details']]
+            parts.append(f"🔄混淆({len(mm)}): {', '.join(mm)}")
+        if img['fp_details']:
+            fps = [f"{c}({conf:.2f})" for c, conf in img['fp_details']]
+            parts.append(f"❓誤判({len(fps)}): {', '.join(fps)}")
+        if img['fn_details']:
+            parts.append(f"⚠️漏抓({len(img['fn_details'])}): {', '.join(img['fn_details'])}")
+        print(f"• {img['image']} (真值:{img['gt_count']} | 預測:{img['pred_count']})\n    " + " ｜ ".join(parts))
     print("=" * 70)
 
 if __name__ == "__main__":

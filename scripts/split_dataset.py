@@ -138,7 +138,7 @@ def split_yolo_dataset(
     # 自動打包為 dataset.zip
     if make_zip:
         create_dataset_zip(output_dir, zip_path)
-        print(f"\n🚀 下一步：直接將 `{zip_path}` 上傳至 Google Drive 根目錄，即可無縫啟動 Colab 消融訓練！\n")
+        print(f"\n🚀 下一步：直接將 `{zip_path}` 上傳至 Google Drive 的 `NCHU_YOLO_Project_Traffic_Facility_6_classes/` 目錄，即可無縫啟動 Colab 消融訓練！\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="YOLO 資料集隨機切分與打包工具 (7:2:1)")

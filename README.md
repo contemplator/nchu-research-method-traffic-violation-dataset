@@ -131,7 +131,7 @@ python scripts/split_dataset.py
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/feat/152-images-leo/notebooks/NCHU_Research_YOLOv7.ipynb)
 
-1. 將本地一鍵生成之 **`data/dataset.zip`** 直接上傳至個人 Google Drive 根目錄（或指定目錄）。
+1. 將本地一鍵生成之 **`data/dataset.zip`** 上傳至個人 Google Drive 的 `NCHU_YOLO_Project_Traffic_Facility_6_classes/` 目錄中（即 `NCHU_YOLO_Project_Traffic_Facility_6_classes/dataset.zip`）。
 2. 點擊上方按鈕直接於 Google Colab 開啟 [notebooks/NCHU_Research_YOLOv7.ipynb](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/feat/152-images-leo/notebooks/NCHU_Research_YOLOv7.ipynb)。
 3. 依序執行儲存格：
    * 掛載 Google Drive
