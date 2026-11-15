@@ -1,7 +1,7 @@
-# Hyperparameters for Exp 4 Ablation Study (Custom Fine-Tuning)
-# Optimized for small custom traffic dataset (Taiwan street scenes)
+# Hyperparameters for Exp 4 Ablation Study (Custom Fine-Tuning - Stage 1 Optimized)
+# Optimized for small custom traffic dataset (152 images, 6 classes) & extreme-aspect-ratio road markings
 
-lr0: 0.005  # initial learning rate (reduced for smoother convergence on small dataset)
+lr0: 0.01  # initial learning rate (restored to 0.01 for faster convergence on 106-image train split)
 lrf: 0.01   # final OneCycleLR learning rate (lr0 * lrf)
 momentum: 0.937  # SGD momentum
 weight_decay: 0.0005  # optimizer weight decay
@@ -10,24 +10,24 @@ warmup_momentum: 0.8  # warmup initial momentum
 warmup_bias_lr: 0.1  # warmup initial bias lr
 box: 0.05  # box loss gain
 cls: 0.5  # cls loss gain
-cls_pw: 1.0  # cls BCELoss positive_weight
+cls_pw: 1.2  # cls BCELoss positive_weight (boosted to improve minority class recall)
 obj: 1.0  # obj loss gain
-obj_pw: 1.0  # obj BCELoss positive_weight
+obj_pw: 1.5  # obj BCELoss positive_weight (boosted to reduce false negatives / missed detections)
 iou_t: 0.20  # IoU training threshold
-anchor_t: 4.0  # anchor-multiple threshold
+anchor_t: 6.0  # anchor-multiple threshold (relaxed from 4.0 to 6.0 for flat crosswalk & turn-box aspect ratios)
 fl_gamma: 0.0  # focal loss gamma
 hsv_h: 0.015  # image HSV-Hue augmentation
 hsv_s: 0.7  # image HSV-Saturation augmentation
 hsv_v: 0.4  # image HSV-Value augmentation
-degrees: 5.0  # image rotation (+/- deg) - slight rotation for dashcam angles
-translate: 0.15  # image translation (+/- fraction)
+degrees: 0.0  # image rotation (+/- deg) - disabled to prevent horizontal bbox inflation on flat road markings
+translate: 0.1  # image translation (+/- fraction)
 scale: 0.5  # image scale (+/- gain)
-shear: 2.0  # image shear (+/- deg)
-perspective: 0.0005  # slight perspective change
+shear: 0.0  # image shear (+/- deg) - disabled to preserve flat bounding box geometry
+perspective: 0.0  # image perspective (+/- fraction) - disabled
 flipud: 0.0  # no vertical flipping (cars are not upside down)
 fliplr: 0.5  # horizontal flip
-mosaic: 1.0  # mosaic augmentation
-mixup: 0.1  # increased mixup for occlusion robustness
-copy_paste: 0.0
-paste_in: 0.05
-loss_ota: 1
+mosaic: 1.0  # mosaic augmentation (improves small object detection like distant traffic lights/signs)
+mixup: 0.0  # disabled mixup so YOLOv7-tiny converges cleanly within 100 epochs
+copy_paste: 0.0  # segment copy-paste
+paste_in: 0.0  # disabled paste_in to avoid noisy synthetic overlaps on small dataset
+loss_ota: 1  # use ComputeLossOTA
