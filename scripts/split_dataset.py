@@ -118,6 +118,17 @@ def split_yolo_dataset(
             shutil.copy2(os.path.join(images_dir, img_name), os.path.join(img_out, img_name))
             # 複製標籤
             shutil.copy2(os.path.join(actual_labels_dir, txt_name), os.path.join(lbl_out, txt_name))
+
+    # 複製 classes.txt 與 data.yaml 至 dataset 根目錄以利對照
+    for cdir in [actual_labels_dir, images_dir]:
+        cpath = os.path.join(cdir, "classes.txt")
+        if os.path.exists(cpath):
+            shutil.copy2(cpath, os.path.join(output_dir, "classes.txt"))
+            break
+
+    yaml_src = "configs/traffic_facility.yaml"
+    if os.path.exists(yaml_src):
+        shutil.copy2(yaml_src, os.path.join(output_dir, "data.yaml"))
                 
     print(f"✅ 資料集標準 YOLO 格式切分完畢！成果已儲存至: {output_dir}")
     print(f"   ├── {output_dir}train/ (images: {len(splits['train'])}, labels: {len(splits['train'])})")

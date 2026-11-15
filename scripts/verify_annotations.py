@@ -10,12 +10,22 @@ import os
 import argparse
 from collections import Counter
 
-CLASS_NAMES = {
-    0: "red_line_parking",
-    1: "double_parking",
-    2: "yellow_box_parking",
-    3: "sidewalk_parking"
-}
+def load_class_names(labels_dir: str, images_dir: str) -> dict:
+    """從 classes.txt 讀取類別對照表，若無則使用預設"""
+    for d in [labels_dir, images_dir]:
+        if d:
+            cpath = os.path.join(d, "classes.txt")
+            if os.path.exists(cpath):
+                with open(cpath, 'r', encoding='utf-8') as f:
+                    cnames = [l.strip() for l in f if l.strip()]
+                if cnames:
+                    return {i: name for i, name in enumerate(cnames)}
+    return {
+        0: "red_line_parking",
+        1: "double_parking",
+        2: "yellow_box_parking",
+        3: "sidewalk_parking"
+    }
 
 def resolve_labels_dir(images_dir: str, labels_dir: str = None) -> str:
     """自動判定標籤存放目錄 (優先 labels_dir -> 預設 data/labels/ -> fallback 到 images_dir)"""
@@ -38,9 +48,11 @@ def verify_dataset(images_dir: str = "data/annotated/", labels_dir: str = None) 
     images = [f for f in os.listdir(images_dir) if f.lower().endswith(image_exts)]
     txt_files = [f for f in os.listdir(actual_labels_dir) if f.lower().endswith('.txt') and not f.startswith("classes")]
     
+    class_names = load_class_names(actual_labels_dir, images_dir)
     print(f"🔍 開始驗證標註合規性:")
     print(f"   圖片目錄: {images_dir} (共 {len(images)} 張)")
-    print(f"   標籤目錄: {actual_labels_dir} (共 {len(txt_files)} 份)\n")
+    print(f"   標籤目錄: {actual_labels_dir} (共 {len(txt_files)} 份)")
+    print(f"   類別數量: {len(class_names)} ({', '.join(class_names.values())})\n")
     
     errors = []
     class_counter = Counter()
@@ -78,8 +90,8 @@ def verify_dataset(images_dir: str = "data/annotated/", labels_dir: str = None) 
                 errors.append(f"[數值解析錯誤] {txt_name} 第 {line_num} 行無法轉為數值: '{line}'")
                 continue
                 
-            if cls_id not in CLASS_NAMES:
-                errors.append(f"[類別 ID 超界] {txt_name} 第 {line_num} 行 class_id={cls_id}，必須介於 0~3")
+            if cls_id not in class_names:
+                errors.append(f"[類別 ID 超界] {txt_name} 第 {line_num} 行 class_id={cls_id}，必須介於 0~{len(class_names)-1}")
             else:
                 class_counter[cls_id] += 1
                 total_boxes += 1
@@ -97,7 +109,7 @@ def verify_dataset(images_dir: str = "data/annotated/", labels_dir: str = None) 
 
     print("📊 類別分佈統計 (Class Distribution):")
     print("-" * 55)
-    for cid, name in CLASS_NAMES.items():
+    for cid, name in class_names.items():
         count = class_counter[cid]
         pct = (count / total_boxes * 100) if total_boxes > 0 else 0
         print(f"  Class {cid} ({name:<18}): {count:>4} 個目標 ({pct:>5.1f}%)")
