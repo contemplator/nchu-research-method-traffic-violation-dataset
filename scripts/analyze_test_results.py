@@ -2,16 +2,19 @@
 """
 scripts/analyze_test_results.py
 測試集預測結果與標準答案 (Ground Truth) 系統性比對與可解釋性誤差診斷工具。
-自動比對 test/labels/ 與 detect.py 輸出之 labels/，分類：
-- TP (True Positive): 成功抓到 (IoU >= 0.5 且類別正確)
-- FN (False Negative): 漏抓目標 (未檢出之真實物件)
-- FP (False Positive): 誤判/虛警 (無對應真值之預測框)
-- Class Error: 類別混淆 (位置重疊但分類錯誤)
+支援：
+1. 單一實驗 4 維度誤差診斷（TP / FP / FN / Misclassification / Low IoU [0.2 <= IoU < 0.5]）
+2. 多實驗整合分析模式（--manifest <json>）：
+   - 自動讀取各啟用實驗之 results.txt 繪製 4 象限收斂曲線圖（mAP@0.5, mAP@0.5:0.95, Total Train Loss, Recall）
+   - 自動彙整 Master Benchmark 總對照表與 4 維度誤差統計表（輸出 CSV 與終端摘要）
+   - 自動挑選難例（優先含 Sign_limit, two_stage_left_turn_box, crosswalk）產出同圖並排推論對比矩陣 (inference_comparison_grid.jpg)
 """
 
 import os
-import argparse
+import json
+import csv
 import glob
+import argparse
 from collections import defaultdict
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,28 +24,38 @@ DEFAULT_CLASSES = [
     "two_stage_left_turn_box",
     "Sign_follow",
     "Sign_prohibit",
-    "Sign_limit"
+    "Sign_limit",
 ]
+
+CLASS_COLORS = [
+    (46, 204, 113),   # traffic_light - green
+    (52, 152, 219),   # crosswalk - blue
+    (241, 196, 15),   # two_stage_left_turn_box - yellow
+    (155, 89, 182),   # Sign_follow - purple
+    (231, 76, 60),    # Sign_prohibit - red
+    (230, 126, 34),   # Sign_limit - orange
+]
+
 
 def load_classes(classes_path):
     if classes_path and os.path.exists(classes_path):
-        if classes_path.endswith(('.yaml', '.yml')):
+        if classes_path.endswith((".yaml", ".yml")):
             try:
                 import yaml
-                with open(classes_path, 'r', encoding='utf-8') as f:
+                with open(classes_path, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f)
-                if isinstance(data, dict) and 'names' in data:
-                    return list(data['names'])
+                if isinstance(data, dict) and "names" in data:
+                    return list(data["names"])
             except Exception:
                 pass
-        with open(classes_path, 'r', encoding='utf-8') as f:
-            lines = [l.strip() for l in f if l.strip() and not l.strip().startswith('#')]
+        with open(classes_path, "r", encoding="utf-8") as f:
+            lines = [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
         if lines:
             return lines
     return DEFAULT_CLASSES
 
+
 def box_iou(b1, b2):
-    # b: [cls, xc, yc, w, h]
     x1_min, y1_min = b1[1] - b1[3] / 2, b1[2] - b1[4] / 2
     x1_max, y1_max = b1[1] + b1[3] / 2, b1[2] + b1[4] / 2
     x2_min, y2_min = b2[1] - b2[3] / 2, b2[2] - b2[4] / 2
@@ -54,11 +67,12 @@ def box_iou(b1, b2):
     union_area = (b1[3] * b1[4]) + (b2[3] * b2[4]) - inter_area
     return inter_area / union_area if union_area > 0 else 0.0
 
+
 def read_yolo_txt(file_path, has_conf=False):
     boxes = []
     if not os.path.exists(file_path):
         return boxes
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split()
             if not parts:
@@ -69,10 +83,15 @@ def read_yolo_txt(file_path, has_conf=False):
             boxes.append([cls_id, xc, yc, w, h, conf])
     return boxes
 
-def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thresh=0.5, output_dir=None):
+
+def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thresh=0.5, low_iou_thresh=0.2):
     classes = classes or DEFAULT_CLASSES
     gt_files = sorted(glob.glob(os.path.join(gt_dir, "*.txt")))
-    gt_stems = [os.path.splitext(os.path.basename(f))[0] for f in gt_files if not f.endswith("classes.txt")]
+    gt_stems = [
+        os.path.splitext(os.path.basename(f))[0]
+        for f in gt_files
+        if not os.path.basename(f).startswith("classes")
+    ]
 
     summary_stats = {
         "total_images": len(gt_stems),
@@ -81,8 +100,10 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
         "tp": 0,
         "fn": 0,
         "fp": 0,
+        "pure_fp": 0,
         "class_mismatches": 0,
-        "per_class": defaultdict(lambda: {"gt": 0, "tp": 0, "fn": 0, "fp": 0})
+        "low_iou": 0,
+        "per_class": defaultdict(lambda: {"gt": 0, "tp": 0, "fn": 0, "fp": 0}),
     }
 
     image_details = []
@@ -93,7 +114,6 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
 
         gt_boxes = read_yolo_txt(gt_path, has_conf=False)
         pred_boxes = read_yolo_txt(pred_path, has_conf=True)
-        # sort predictions by confidence descending
         pred_boxes.sort(key=lambda x: x[5], reverse=True)
 
         summary_stats["total_gt"] += len(gt_boxes)
@@ -103,15 +123,9 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
             summary_stats["per_class"][cname]["gt"] += 1
 
         matched_gt_indices = set()
-        matched_pred_indices = set()
+        img_tp, img_fn, img_fp, img_mismatch, img_low_iou = [], [], [], [], []
 
-        img_tp = []
-        img_fn = []
-        img_fp = []
-        img_mismatch = []
-
-        # 1. Match predictions to ground truth
-        for p_idx, p in enumerate(pred_boxes):
+        for p in pred_boxes:
             best_iou = 0.0
             best_g_idx = -1
             for g_idx, g in enumerate(gt_boxes):
@@ -122,11 +136,11 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
                     best_iou = iou
                     best_g_idx = g_idx
 
+            p_cname = classes[p[0]] if p[0] < len(classes) else str(p[0])
+
             if best_iou >= iou_thresh and best_g_idx != -1:
                 g = gt_boxes[best_g_idx]
                 matched_gt_indices.add(best_g_idx)
-                matched_pred_indices.add(p_idx)
-                p_cname = classes[p[0]] if p[0] < len(classes) else str(p[0])
                 g_cname = classes[g[0]] if g[0] < len(classes) else str(g[0])
 
                 if p[0] == g[0]:
@@ -139,12 +153,17 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
                     summary_stats["per_class"][p_cname]["fp"] += 1
                     img_mismatch.append((g_cname, p_cname, best_iou, p[5]))
             else:
-                p_cname = classes[p[0]] if p[0] < len(classes) else str(p[0])
+                # 檢查是否屬於定位偏差 (0.2 <= IoU < 0.5)
+                max_any_iou = max((box_iou(p, g) for g in gt_boxes), default=0.0)
                 summary_stats["fp"] += 1
                 summary_stats["per_class"][p_cname]["fp"] += 1
-                img_fp.append((p_cname, p[5]))
+                if low_iou_thresh <= max_any_iou < iou_thresh:
+                    summary_stats["low_iou"] += 1
+                    img_low_iou.append((p_cname, max_any_iou, p[5]))
+                else:
+                    summary_stats["pure_fp"] += 1
+                    img_fp.append((p_cname, p[5]))
 
-        # 2. Unmatched ground truths are False Negatives (FN)
         for g_idx, g in enumerate(gt_boxes):
             if g_idx not in matched_gt_indices:
                 g_cname = classes[g[0]] if g[0] < len(classes) else str(g[0])
@@ -158,71 +177,335 @@ def analyze_predictions(gt_dir, pred_dir, images_dir=None, classes=None, iou_thr
             "pred_count": len(pred_boxes),
             "tp": len(img_tp),
             "fn": len(img_fn),
-            "fp": len(img_fp) + len(img_mismatch),
+            "fp": len(img_fp) + len(img_mismatch) + len(img_low_iou),
+            "low_iou": len(img_low_iou),
             "tp_details": img_tp,
             "fn_details": img_fn,
             "fp_details": img_fp,
-            "mismatch_details": img_mismatch
+            "mismatch_details": img_mismatch,
+            "low_iou_details": img_low_iou,
         })
 
     return summary_stats, image_details
 
+
 def print_readable_report(summary_stats, image_details):
-    print("=" * 70)
-    print("📊 YOLO 測試集系統性比對與可解釋性誤差診斷報告")
-    print("=" * 70)
+    print("=" * 72)
+    print("📊 YOLO 測試集系統性比對與 4 維度誤差診斷報告")
+    print("=" * 72)
     print(f"• 測試樣本總數: {summary_stats['total_images']} 張")
     print(f"• 真實目標總數 (Ground Truth): {summary_stats['total_gt']} 個")
     print(f"• 模型檢測總數 (Predictions) : {summary_stats['total_pred']} 個")
-    print("-" * 70)
-    
-    tp_pct = (summary_stats['tp'] / summary_stats['total_gt'] * 100) if summary_stats['total_gt'] > 0 else 0
-    fn_pct = (summary_stats['fn'] / summary_stats['total_gt'] * 100) if summary_stats['total_gt'] > 0 else 0
-    fp_pct = (summary_stats['fp'] / summary_stats['total_pred'] * 100) if summary_stats['total_pred'] > 0 else 0
+    print("-" * 72)
 
-    print(f"✅ 成功辨識 (True Positives, TP) : {summary_stats['tp']:>3} 個 ({tp_pct:5.1f}% 召回)")
-    print(f"⚠️ 漏抓目標 (False Negatives, FN): {summary_stats['fn']:>3} 個 ({fn_pct:5.1f}% 漏檢)")
-    print(f"❓ 誤判虛警 (False Positives, FP): {summary_stats['fp']:>3} 個 ({fp_pct:5.1f}% 誤報)")
-    if summary_stats['class_mismatches'] > 0:
-        print(f"🔄 類別混淆 (Class Mismatch)   : {summary_stats['class_mismatches']:>3} 個")
-    print("-" * 70)
+    tp_pct = (summary_stats["tp"] / summary_stats["total_gt"] * 100) if summary_stats["total_gt"] > 0 else 0
+    fn_pct = (summary_stats["fn"] / summary_stats["total_gt"] * 100) if summary_stats["total_gt"] > 0 else 0
+    fp_pct = (summary_stats["fp"] / summary_stats["total_pred"] * 100) if summary_stats["total_pred"] > 0 else 0
+
+    print(f"✅ 成功辨識 (True Positives, TP)      : {summary_stats['tp']:>3} 個 ({tp_pct:5.1f}% 召回)")
+    print(f"⚠️ 漏抓目標 (False Negatives, FN)     : {summary_stats['fn']:>3} 個 ({fn_pct:5.1f}% 漏檢)")
+    print(f"❓ 誤判總數 (Total False Positives)   : {summary_stats['fp']:>3} 個 ({fp_pct:5.1f}% 誤報)")
+    print(f"   ├─ 背景假陽性 (Pure FP)            : {summary_stats['pure_fp']:>3} 個")
+    print(f"   ├─ 類別混淆 (Misclassification)    : {summary_stats['class_mismatches']:>3} 個")
+    print(f"   └─ 邊界偏差 (Low IoU 0.2~0.5)      : {summary_stats['low_iou']:>3} 個")
+    print("-" * 72)
 
     print("\n🔍 各類別細部統計 (Class Breakdown):")
-    header = f"{'類別名稱 (Class)':<24} | {'GT':<4} | {'TP (抓到)':<9} | {'FN (漏抓)':<9} | {'FP (誤判)':<9} | {'Recall':<7} | {'Precision':<9}"
+    header = f"{'類別名稱 (Class)':<24} | {'GT':<4} | {'TP':<5} | {'FN':<5} | {'FP':<5} | {'Recall':<7} | {'Precision':<9}"
     print(header)
     print("-" * len(header))
-    for cname, stats in sorted(summary_stats['per_class'].items()):
-        gt = stats['gt']
-        tp = stats['tp']
-        fn = stats['fn']
-        fp = stats['fp']
+    for cname, stats in sorted(summary_stats["per_class"].items()):
+        gt, tp, fn, fp = stats["gt"], stats["tp"], stats["fn"], stats["fp"]
         recall = (tp / gt * 100) if gt > 0 else 0.0
         prec = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
-        print(f"{cname:<24} | {gt:>4} | {tp:>9} | {fn:>9} | {fp:>9} | {recall:>6.1f}% | {prec:>8.1f}%")
+        print(f"{cname:<24} | {gt:>4} | {tp:>5} | {fn:>5} | {fp:>5} | {recall:>6.1f}% | {prec:>8.1f}%")
 
-    # Print per-image breakdown of all test images
-    print(f"\n📸 測試集 16 張影像逐張偵測明細 (Per-Image Detection Summary):")
-    print("-" * 70)
+    print(f"\n📸 測試集 {summary_stats['total_images']} 張影像逐張偵測明細:")
+    print("-" * 72)
     for img in image_details:
         parts = []
-        if img['tp_details']:
-            tps = [f"{c}({conf:.2f})" for c, iou, conf in img['tp_details']]
+        if img["tp_details"]:
+            tps = [f"{c}({conf:.2f})" for c, _, conf in img["tp_details"]]
             parts.append(f"✅抓到({len(tps)}): {', '.join(tps)}")
         else:
             parts.append("✅抓到(0)")
-        if img['mismatch_details']:
-            mm = [f"真值{g}->預測{p}({conf:.2f})" for g, p, iou, conf in img['mismatch_details']]
+        if img["mismatch_details"]:
+            mm = [f"真值{g}->預測{p}({conf:.2f})" for g, p, _, conf in img["mismatch_details"]]
             parts.append(f"🔄混淆({len(mm)}): {', '.join(mm)}")
-        if img['fp_details']:
-            fps = [f"{c}({conf:.2f})" for c, conf in img['fp_details']]
+        if img["low_iou_details"]:
+            li = [f"{c}(IoU={iou:.2f})" for c, iou, _ in img["low_iou_details"]]
+            parts.append(f"📐LowIoU({len(li)}): {', '.join(li)}")
+        if img["fp_details"]:
+            fps = [f"{c}({conf:.2f})" for c, conf in img["fp_details"]]
             parts.append(f"❓誤判({len(fps)}): {', '.join(fps)}")
-        if img['fn_details']:
+        if img["fn_details"]:
             parts.append(f"⚠️漏抓({len(img['fn_details'])}): {', '.join(img['fn_details'])}")
         print(f"• {img['image']} (真值:{img['gt_count']} | 預測:{img['pred_count']})\n    " + " ｜ ".join(parts))
-    print("=" * 70)
+    print("=" * 72)
+
+
+def parse_yolov7_results_txt(results_txt_path):
+    """解析 YOLOv7 results.txt，回傳各 epoch 指標字典列表。"""
+    epochs, total_loss, recall, map50, map50_95 = [], [], [], [], []
+    if not results_txt_path or not os.path.exists(results_txt_path):
+        return None
+    with open(results_txt_path, "r", encoding="utf-8") as f:
+        for idx, line in enumerate(f, start=1):
+            parts = line.strip().split()
+            if len(parts) < 12:
+                continue
+            try:
+                ep_str = parts[0].split("/")[0]
+                ep = int(ep_str) + 1
+                t_loss = float(parts[5])
+                r_val = float(parts[9])
+                m50 = float(parts[10])
+                m95 = float(parts[11])
+            except (ValueError, IndexError):
+                continue
+            epochs.append(ep if ep > 0 else idx)
+            total_loss.append(t_loss)
+            recall.append(r_val)
+            map50.append(m50)
+            map50_95.append(m95)
+    if not epochs:
+        return None
+    return {
+        "epochs": epochs,
+        "total_loss": total_loss,
+        "recall": recall,
+        "map50": map50,
+        "map50_95": map50_95,
+    }
+
+
+def plot_convergence_quadrants(experiments, output_path):
+    """繪製 4 象限收斂曲線圖：mAP@0.5, mAP@0.5:0.95, Total Train Loss, Recall"""
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11), dpi=150)
+    panels = [
+        (axes[0, 0], "map50", "mAP@0.5 Convergence", "mAP@0.5"),
+        (axes[0, 1], "map50_95", "mAP@0.5:0.95 Convergence", "mAP@0.5:0.95"),
+        (axes[1, 0], "total_loss", "Total Train Loss Convergence", "Loss"),
+        (axes[1, 1], "recall", "Validation Recall Convergence", "Recall"),
+    ]
+
+    plotted = 0
+    for exp in experiments:
+        parsed = parse_yolov7_results_txt(exp.get("results_txt"))
+        if not parsed:
+            continue
+        plotted += 1
+        label = exp.get("label", exp.get("id", "exp"))
+        for ax, key, _, _ in panels:
+            ax.plot(parsed["epochs"], parsed[key], linewidth=1.8, label=label)
+
+    for ax, _, title, ylabel in panels:
+        ax.set_title(title, fontsize=13, fontweight="bold")
+        ax.set_xlabel("Epoch", fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.grid(True, linestyle="--", alpha=0.35)
+        if plotted > 0:
+            ax.legend(fontsize=8, loc="best")
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    plt.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"📈 已輸出 4 象限收斂對照圖: {output_path} (共 {plotted} 組實驗)")
+
+
+def find_image_path(images_dir, stem):
+    for ext in (".jpg", ".jpeg", ".png", ".bmp"):
+        p = os.path.join(images_dir, stem + ext)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def draw_boxes_on_image(img_path, boxes, classes, title, is_gt=False):
+    img = Image.open(img_path).convert("RGB")
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    for b in boxes:
+        cls_id, xc, yc, bw, bh = int(b[0]), b[1], b[2], b[3], b[4]
+        conf = b[5] if len(b) > 5 else 1.0
+        x1 = max(0, int((xc - bw / 2) * w))
+        y1 = max(0, int((yc - bh / 2) * h))
+        x2 = min(w - 1, int((xc + bw / 2) * w))
+        y2 = min(h - 1, int((yc + bh / 2) * h))
+        color = CLASS_COLORS[cls_id % len(CLASS_COLORS)]
+        cname = classes[cls_id] if cls_id < len(classes) else str(cls_id)
+        label = cname if is_gt else f"{cname} {conf:.2f}"
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        draw.text((x1 + 2, max(0, y1 - 12)), label, fill=color, font=font)
+
+    # 頂部標題列
+    banner_h = 28
+    canvas = Image.new("RGB", (w, h + banner_h), (25, 25, 25))
+    canvas.paste(img, (0, banner_h))
+    d2 = ImageDraw.Draw(canvas)
+    d2.text((8, 7), title, fill=(255, 255, 255), font=font)
+    return canvas
+
+
+def select_hard_stems(gt_dir, classes, max_images=5):
+    """優先挑選含 Sign_limit (5), two_stage_left_turn_box (2), crosswalk (1) 或框數較多的測試圖。"""
+    target_cls = {5: 10, 2: 6, 1: 3}
+    scored = []
+    for gt_file in sorted(glob.glob(os.path.join(gt_dir, "*.txt"))):
+        stem = os.path.splitext(os.path.basename(gt_file))[0]
+        if stem.startswith("classes"):
+            continue
+        boxes = read_yolo_txt(gt_file, has_conf=False)
+        score = sum(target_cls.get(b[0], 1) for b in boxes)
+        scored.append((score, len(boxes), stem))
+    scored.sort(reverse=True)
+    return [s[2] for s in scored[:max_images]]
+
+
+def generate_comparison_grid(experiments, gt_dir, images_dir, classes, output_path, max_images=5):
+    """產出所有啟用實驗的同圖並排推論對比矩陣 (Ground Truth + 各實驗預測)。"""
+    valid_exps = [e for e in experiments if e.get("detect_labels_dir") and os.path.exists(e["detect_labels_dir"])]
+    if not valid_exps or not os.path.exists(images_dir):
+        print("⚠️ 略過推論對比矩陣：找不到可用的 detect labels 或測試影像目錄。")
+        return
+
+    stems = select_hard_stems(gt_dir, classes, max_images=max_images)
+    if not stems:
+        print("⚠️ 略過推論對比矩陣：測試集無樣本。")
+        return
+
+    tile_w, tile_h = 480, 300
+    rows = []
+    for stem in stems:
+        img_path = find_image_path(images_dir, stem)
+        if not img_path:
+            continue
+        gt_boxes = read_yolo_txt(os.path.join(gt_dir, f"{stem}.txt"), has_conf=False)
+        row_tiles = [
+            draw_boxes_on_image(img_path, gt_boxes, classes, f"GT | {stem}", is_gt=True).resize((tile_w, tile_h))
+        ]
+        for exp in valid_exps:
+            pred_path = os.path.join(exp["detect_labels_dir"], f"{stem}.txt")
+            pred_boxes = read_yolo_txt(pred_path, has_conf=True)
+            exp_img_dir = exp.get("images_dir") or images_dir
+            exp_img_path = find_image_path(exp_img_dir, stem) or img_path
+            title = exp.get("short_label", exp.get("id", "exp"))
+            row_tiles.append(
+                draw_boxes_on_image(exp_img_path, pred_boxes, classes, title, is_gt=False).resize((tile_w, tile_h))
+            )
+        rows.append(row_tiles)
+
+    if not rows:
+        return
+
+    ncols = len(rows[0])
+    nrows = len(rows)
+    grid = Image.new("RGB", (ncols * tile_w, nrows * tile_h), (15, 15, 15))
+    for r_idx, row_tiles in enumerate(rows):
+        for c_idx, tile in enumerate(row_tiles):
+            grid.paste(tile, (c_idx * tile_w, r_idx * tile_h))
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    grid.save(output_path, quality=92)
+    print(f"🖼️ 已輸出同圖並排推論對比矩陣: {output_path} ({nrows} 張難例 × {ncols} 欄)")
+
+
+def run_benchmark_manifest(manifest_path, output_dir, classes, iou_thresh=0.5, max_grid_images=5):
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    experiments = manifest.get("experiments", [])
+    gt_dir = manifest.get("gt_dir", "data/dataset/test/labels")
+    images_dir = manifest.get("images_dir", "data/dataset/test/images")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 1. 4 象限收斂對照圖
+    plot_convergence_quadrants(experiments, os.path.join(output_dir, "convergence_quadrants.png"))
+
+    # 2. Master Benchmark + 4 維度誤差表
+    rows = []
+    for exp in experiments:
+        detect_dir = exp.get("detect_labels_dir")
+        err_stats = {
+            "tp": "-", "fp": "-", "fn": "-",
+            "misclassification": "-", "low_iou": "-",
+        }
+        if detect_dir and os.path.exists(detect_dir):
+            exp_gt_dir = exp.get("gt_dir") or gt_dir
+            s, _ = analyze_predictions(exp_gt_dir, detect_dir, images_dir, classes, iou_thresh=iou_thresh)
+            err_stats = {
+                "tp": s["tp"],
+                "fp": s["fp"],
+                "fn": s["fn"],
+                "misclassification": s["class_mismatches"],
+                "low_iou": s["low_iou"],
+            }
+
+        rows.append({
+            "Experiment": exp.get("label", exp.get("id")),
+            "Arch": exp.get("arch", ""),
+            "ImgSize": exp.get("img_size", ""),
+            "Batch": exp.get("batch", ""),
+            "Epochs": exp.get("epochs", ""),
+            "BestConf": exp.get("best_conf", "-"),
+            "mAP@0.5": exp.get("map50", "-"),
+            "mAP@0.5:0.95": exp.get("map50_95", "-"),
+            "Precision": exp.get("precision", "-"),
+            "Recall": exp.get("recall", "-"),
+            "F1": exp.get("f1", "-"),
+            "ms/img": exp.get("ms_per_img", "-"),
+            "FPS": exp.get("fps", "-"),
+            "TP": err_stats["tp"],
+            "FP": err_stats["fp"],
+            "FN": err_stats["fn"],
+            "Misclassification": err_stats["misclassification"],
+            "Low_IoU": err_stats["low_iou"],
+        })
+
+    csv_path = os.path.join(output_dir, "master_benchmark.csv")
+    if rows:
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+        print(f"\n📋 已輸出 Master Benchmark 總對照表: {csv_path}")
+        print("-" * 115)
+        print(
+            f"{'Experiment':<26} | {'BestConf':>8} | {'mAP50':>7} | {'mAP95':>7} | "
+            f"{'P':>6} | {'R':>6} | {'F1':>6} | {'FPS':>6} | "
+            f"{'TP':>4} | {'FP':>4} | {'FN':>4} | {'Mis':>4} | {'LowIoU':>6}"
+        )
+        print("-" * 115)
+        for r in rows:
+            print(
+                f"{str(r['Experiment']):<26} | {str(r['BestConf']):>8} | {str(r['mAP@0.5']):>7} | "
+                f"{str(r['mAP@0.5:0.95']):>7} | {str(r['Precision']):>6} | {str(r['Recall']):>6} | "
+                f"{str(r['F1']):>6} | {str(r['FPS']):>6} | {str(r['TP']):>4} | {str(r['FP']):>4} | "
+                f"{str(r['FN']):>4} | {str(r['Misclassification']):>4} | {str(r['Low_IoU']):>6}"
+            )
+        print("-" * 115)
+
+    # 3. 橫向推論對比矩陣
+    generate_comparison_grid(
+        experiments,
+        gt_dir,
+        images_dir,
+        classes,
+        os.path.join(output_dir, "inference_comparison_grid.jpg"),
+        max_images=max_grid_images,
+    )
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="YOLO 測試集可解釋性誤差診斷分析工具")
+    parser = argparse.ArgumentParser(description="YOLO 測試集可解釋性誤差診斷與多實驗基準分析工具")
+    parser.add_argument("--manifest", type=str, default=None, help="多實驗整合分析 JSON 清單路徑")
+    parser.add_argument("--output-dir", type=str, default="results/benchmark", help="多實驗輸出目錄")
+    parser.add_argument("--max-grid-images", type=int, default=5, help="對比矩陣挑選難例張數")
     parser.add_argument("--gt", type=str, default="data/dataset/test/labels", help="真實測試集標籤目錄")
     parser.add_argument("--pred", type=str, default="runs/detect/detect_test_images/labels", help="模型預測標籤目錄")
     parser.add_argument("--images", type=str, default="data/dataset/test/images", help="測試集原圖目錄")
@@ -231,5 +514,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     classes = load_classes(args.classes)
-    stats, details = analyze_predictions(args.gt, args.pred, args.images, classes, args.iou)
-    print_readable_report(stats, details)
+    if args.manifest:
+        run_benchmark_manifest(
+            args.manifest,
+            args.output_dir,
+            classes,
+            iou_thresh=args.iou,
+            max_grid_images=args.max_grid_images,
+        )
+    else:
+        stats, details = analyze_predictions(args.gt, args.pred, args.images, classes, args.iou)
+        print_readable_report(stats, details)

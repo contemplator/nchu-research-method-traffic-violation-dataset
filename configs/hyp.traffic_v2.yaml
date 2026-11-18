@@ -1,0 +1,37 @@
+# Hyperparameters for Exp 9 & Exp 10 (Domain-Tuned v2 - Long-Tail + Localization Refinement)
+# Based on hyp.traffic_highres.yaml:
+# 1. fl_gamma: 1.0 (Focal Loss for Sign_prohibit vs Sign_limit 11:1 long-tail & two_stage_left_turn_box)
+# 2. fliplr: 0.0 (Preserve directional traffic sign semantics)
+# 3. mosaic: 0.5 (Reduce cropping damage on elongated crosswalks)
+# 4. box: 0.075 (Higher bbox regression weight to reduce Low IoU errors)
+
+lr0: 0.005  # initial learning rate for 960x960 high-resolution stability
+lrf: 0.01   # final OneCycleLR learning rate (lr0 * lrf)
+momentum: 0.937  # SGD momentum
+weight_decay: 0.0005  # optimizer weight decay
+warmup_epochs: 3.0  # warmup epochs
+warmup_momentum: 0.8  # warmup initial momentum
+warmup_bias_lr: 0.1  # warmup initial bias lr
+box: 0.075  # boosted box loss gain for tighter road-marking localization
+cls: 0.5  # cls loss gain
+cls_pw: 1.2  # cls BCELoss positive_weight
+obj: 1.0  # obj loss gain
+obj_pw: 1.5  # obj BCELoss positive_weight
+iou_t: 0.20  # IoU training threshold
+anchor_t: 6.0  # anchor-multiple threshold (relaxed for flat crosswalk & turn-box aspect ratios)
+fl_gamma: 1.0  # focal loss gamma enabled for hard/minority classes
+hsv_h: 0.015  # image HSV-Hue augmentation
+hsv_s: 0.7  # image HSV-Saturation augmentation
+hsv_v: 0.4  # image HSV-Value augmentation
+degrees: 0.0  # image rotation (+/- deg) - disabled
+translate: 0.1  # image translation (+/- fraction)
+scale: 0.5  # image scale (+/- gain)
+shear: 0.0  # image shear (+/- deg) - disabled
+perspective: 0.0  # image perspective (+/- fraction) - disabled
+flipud: 0.0  # no vertical flipping
+fliplr: 0.0  # horizontal flip disabled to preserve directional traffic signs
+mosaic: 0.5  # reduced mosaic probability to protect elongated crosswalks
+mixup: 0.0  # disabled mixup
+copy_paste: 0.0  # segment copy-paste
+paste_in: 0.0  # disabled paste_in
+loss_ota: 1  # use ComputeLossOTA
