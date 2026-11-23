@@ -415,6 +415,163 @@ def generate_comparison_grid(experiments, gt_dir, images_dir, classes, output_pa
     print(f"🖼️ 已輸出同圖並排推論對比矩陣: {output_path} ({nrows} 張難例 × {ncols} 欄)")
 
 
+def _safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_composite_scores(rows, acc_weight=0.6, speed_weight=0.4):
+    """
+    計算準確度與速度的綜合評分 (Composite Score) 與 Pareto 前緣標記：
+    - Acc_Norm   = 0.5 * (mAP@0.5 / max_mAP@0.5) + 0.5 * (F1 / max_F1)
+    - Speed_Norm = FPS / max_FPS
+    - Composite_Score = acc_weight * Acc_Norm + speed_weight * Speed_Norm
+    """
+    valid_points = []
+    for idx, r in enumerate(rows):
+        m50 = _safe_float(r.get("mAP@0.5"))
+        f1 = _safe_float(r.get("F1"))
+        fps = _safe_float(r.get("FPS"))
+        if m50 is not None and f1 is not None and fps is not None and fps > 0:
+            valid_points.append((idx, m50, f1, fps))
+
+    max_m50 = max((p[1] for p in valid_points), default=0.0)
+    max_f1 = max((p[2] for p in valid_points), default=0.0)
+    max_fps = max((p[3] for p in valid_points), default=0.0)
+
+    # 計算 (mAP@0.5, FPS) Pareto Frontier
+    pareto_indices = set()
+    for idx_i, m50_i, _, fps_i in valid_points:
+        dominated = False
+        for idx_j, m50_j, _, fps_j in valid_points:
+            if idx_i == idx_j:
+                continue
+            if m50_j >= m50_i and fps_j >= fps_i and (m50_j > m50_i or fps_j > fps_i):
+                dominated = True
+                break
+        if not dominated:
+            pareto_indices.add(idx_i)
+
+    for idx, r in enumerate(rows):
+        m50 = _safe_float(r.get("mAP@0.5"))
+        f1 = _safe_float(r.get("F1"))
+        fps = _safe_float(r.get("FPS"))
+        if m50 is not None and f1 is not None and fps is not None and max_m50 > 0 and max_f1 > 0 and max_fps > 0:
+            acc_norm = 0.5 * (m50 / max_m50) + 0.5 * (f1 / max_f1)
+            speed_norm = fps / max_fps
+            comp = acc_weight * acc_norm + speed_weight * speed_norm
+            r["Composite_Score"] = f"{comp:.3f}"
+            r["Pareto"] = "Yes" if idx in pareto_indices else "No"
+        else:
+            r["Composite_Score"] = "-"
+            r["Pareto"] = "-"
+    return rows
+
+
+def plot_accuracy_speed_tradeoff(rows, output_path):
+    """繪製 Accuracy vs. Speed (FPS vs mAP@0.5 Pareto 圖 + 綜合評分排行圖)。"""
+    import matplotlib.pyplot as plt
+
+    valid = []
+    for r in rows:
+        m50 = _safe_float(r.get("mAP@0.5"))
+        f1 = _safe_float(r.get("F1"))
+        fps = _safe_float(r.get("FPS"))
+        comp = _safe_float(r.get("Composite_Score"))
+        if m50 is not None and f1 is not None and fps is not None and comp is not None:
+            valid.append({
+                "label": r.get("Experiment", ""),
+                "arch": r.get("Arch", ""),
+                "m50": m50,
+                "f1": f1,
+                "fps": fps,
+                "comp": comp,
+                "pareto": r.get("Pareto") == "Yes",
+            })
+
+    if not valid:
+        print("⚠️ 略過 Accuracy-Speed 權衡圖：無可用的數值資料。")
+        return
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6.5), dpi=150)
+
+    # 左圖：FPS vs mAP@0.5 散佈圖 + Pareto 前緣
+    for item in valid:
+        is_tiny = "tiny" in item["arch"].lower()
+        color = "#1f77b4" if is_tiny else "#d95f02"
+        marker = "o" if is_tiny else "s"
+        edge = "#000000" if item["pareto"] else "white"
+        size = 140 if item["pareto"] else 95
+        ax1.scatter(item["fps"], item["m50"], c=color, marker=marker, s=size, edgecolors=edge, linewidths=1.5, zorder=4)
+        short = item["label"].split(":")[0] if ":" in item["label"] else item["label"]
+        ax1.annotate(
+            f"{short}\n({item['m50']:.3f}, {item['fps']:.0f}fps)",
+            (item["fps"], item["m50"]),
+            textcoords="offset points",
+            xytext=(6, 5),
+            fontsize=8,
+            fontweight="bold" if item["pareto"] else "normal",
+        )
+
+    # 繪製 Pareto Frontier 連線
+    pareto_pts = sorted([v for v in valid if v["pareto"]], key=lambda x: x["fps"])
+    if len(pareto_pts) >= 2:
+        ax1.plot(
+            [p["fps"] for p in pareto_pts],
+            [p["m50"] for p in pareto_pts],
+            linestyle="--",
+            color="#2ca02c",
+            linewidth=1.8,
+            alpha=0.85,
+            label="Pareto Frontier",
+            zorder=3,
+        )
+
+    # 即時推論門檻參考線
+    ax1.axvline(30, color="#888888", linestyle=":", linewidth=1.2, alpha=0.7)
+    ax1.text(31, ax1.get_ylim()[0] if ax1.get_ylim()[0] > 0 else 0.02, "30 FPS", fontsize=8, color="#666666")
+    ax1.axvline(60, color="#888888", linestyle=":", linewidth=1.2, alpha=0.7)
+    ax1.text(61, ax1.get_ylim()[0] if ax1.get_ylim()[0] > 0 else 0.02, "60 FPS", fontsize=8, color="#666666")
+
+    # 圖例代理
+    ax1.scatter([], [], c="#1f77b4", marker="o", s=95, label="YOLOv7-tiny")
+    ax1.scatter([], [], c="#d95f02", marker="s", s=95, label="YOLOv7 Base")
+    ax1.set_title("Accuracy vs. Inference Speed (Test Set, 47 imgs)", fontsize=12, fontweight="bold")
+    ax1.set_xlabel("Inference Speed (FPS)", fontsize=11)
+    ax1.set_ylabel("mAP@0.5", fontsize=11)
+    ax1.grid(True, linestyle="--", alpha=0.35)
+    ax1.legend(loc="best", fontsize=9)
+
+    # 右圖：綜合評分排行橫條圖
+    ranked = sorted(valid, key=lambda x: x["comp"])
+    labels = [x["label"] for x in ranked]
+    scores = [x["comp"] for x in ranked]
+    colors = ["#1f77b4" if "tiny" in x["arch"].lower() else "#d95f02" for x in ranked]
+    bars = ax2.barh(labels, scores, color=colors, alpha=0.88, edgecolor="#333333", linewidth=0.6)
+    for bar, item in zip(bars, ranked):
+        star = " ★" if item["pareto"] else ""
+        ax2.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{item['comp']:.3f}{star}",
+            va="center",
+            fontsize=8.5,
+            fontweight="bold" if item["pareto"] else "normal",
+        )
+    ax2.set_xlim(0, min(1.18, max(scores) + 0.16))
+    ax2.set_title("Composite Score Ranking (0.6×Accuracy + 0.4×Speed)", fontsize=12, fontweight="bold")
+    ax2.set_xlabel("Composite Score (★ = Pareto Optimal)", fontsize=11)
+    ax2.grid(True, axis="x", linestyle="--", alpha=0.35)
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    plt.savefig(output_path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"⚡ 已輸出 Accuracy vs. Speed 權衡分析圖: {output_path}")
+
+
 def run_benchmark_manifest(manifest_path, output_dir, classes, iou_thresh=0.5, max_grid_images=5):
     with open(manifest_path, "r", encoding="utf-8") as f:
         manifest = json.load(f)
@@ -467,6 +624,8 @@ def run_benchmark_manifest(manifest_path, output_dir, classes, iou_thresh=0.5, m
             "Low_IoU": err_stats["low_iou"],
         })
 
+    compute_composite_scores(rows)
+
     csv_path = os.path.join(output_dir, "master_benchmark.csv")
     if rows:
         with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
@@ -474,23 +633,39 @@ def run_benchmark_manifest(manifest_path, output_dir, classes, iou_thresh=0.5, m
             writer.writeheader()
             writer.writerows(rows)
         print(f"\n📋 已輸出 Master Benchmark 總對照表: {csv_path}")
-        print("-" * 115)
+        print("-" * 134)
         print(
             f"{'Experiment':<26} | {'BestConf':>8} | {'mAP50':>7} | {'mAP95':>7} | "
             f"{'P':>6} | {'R':>6} | {'F1':>6} | {'FPS':>6} | "
-            f"{'TP':>4} | {'FP':>4} | {'FN':>4} | {'Mis':>4} | {'LowIoU':>6}"
+            f"{'TP':>4} | {'FP':>4} | {'FN':>4} | {'Mis':>4} | {'LowIoU':>6} | {'Score':>6} | {'Pareto':>6}"
         )
-        print("-" * 115)
+        print("-" * 134)
         for r in rows:
             print(
                 f"{str(r['Experiment']):<26} | {str(r['BestConf']):>8} | {str(r['mAP@0.5']):>7} | "
                 f"{str(r['mAP@0.5:0.95']):>7} | {str(r['Precision']):>6} | {str(r['Recall']):>6} | "
                 f"{str(r['F1']):>6} | {str(r['FPS']):>6} | {str(r['TP']):>4} | {str(r['FP']):>4} | "
-                f"{str(r['FN']):>4} | {str(r['Misclassification']):>4} | {str(r['Low_IoU']):>6}"
+                f"{str(r['FN']):>4} | {str(r['Misclassification']):>4} | {str(r['Low_IoU']):>6} | "
+                f"{str(r['Composite_Score']):>6} | {str(r['Pareto']):>6}"
             )
-        print("-" * 115)
+        print("-" * 134)
 
-    # 3. 橫向推論對比矩陣
+        # 印出綜合評分排行摘要
+        ranked_rows = [r for r in rows if _safe_float(r.get("Composite_Score")) is not None]
+        ranked_rows.sort(key=lambda x: float(x["Composite_Score"]), reverse=True)
+        if ranked_rows:
+            print("\n🏆 準確度 × 速度 綜合評分排行 (Composite = 0.6×Accuracy + 0.4×Speed):")
+            for rank, r in enumerate(ranked_rows, start=1):
+                tag = " ★ Pareto" if r.get("Pareto") == "Yes" else ""
+                print(
+                    f"  #{rank:<2} {r['Experiment']:<30} [{r['Arch']:<11}] "
+                    f"mAP50={r['mAP@0.5']} | F1={r['F1']} | FPS={r['FPS']} | Score={r['Composite_Score']}{tag}"
+                )
+
+    # 3. Accuracy vs. Speed 權衡圖
+    plot_accuracy_speed_tradeoff(rows, os.path.join(output_dir, "accuracy_speed_tradeoff.png"))
+
+    # 4. 橫向推論對比矩陣
     generate_comparison_grid(
         experiments,
         gt_dir,
