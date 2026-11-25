@@ -36,3 +36,8 @@ results/*
 !configs/
 !scripts/
 !notebooks/
+
+# Web demo build & runtime assets
+web/node_modules/
+web/dist/
+web/public/ort/

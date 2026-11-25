@@ -1,0 +1,27 @@
+{
+  "name": "nchu-traffic-yolov7-demo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "sync-ort": "mkdir -p public/ort && cp node_modules/onnxruntime-web/dist/ort-wasm-*.wasm node_modules/onnxruntime-web/dist/ort-wasm-*.mjs public/ort/",
+    "dev": "npm run sync-ort && vite",
+    "build": "npm run sync-ort && tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "onnxruntime-web": "^1.21.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "tailwindcss": "^4.1.7",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}
