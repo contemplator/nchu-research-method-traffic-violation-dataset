@@ -5,10 +5,26 @@
 [![License](https://img.shields.io/badge/License-Academic%20Use%20Only-orange.svg)](#)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/contemplator/nchu-research-method-traffic-violation-dataset/blob/feat/458-images/notebooks/NCHU_Research_YOLOv7.ipynb)
 [![Notion Guide](https://img.shields.io/badge/Notion-YOLO7%20操作指南-000000.svg?logo=notion&logoColor=white)](https://app.notion.com/p/YOLO7-3fafe2e0792381c680b2c415a192ccd3?source=copy_link)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-WebGPU%20%E7%B7%9A%E4%B8%8A%E9%AB%94%E9%A9%97-0ea5e9.svg?logo=googlechrome&logoColor=white)](https://traffic-yolo.hung.services/)
 
 本專案為國立中興大學「**研究方法 (Research Methodology)**」期末專題（Part 2: Detection with YOLO）之資料工程、前處理工具與消融實驗管理儲存庫。
 
-針對台灣市區道路情境中常見之**交通號誌、路面標線與交通標誌等關鍵交通設施偵測（Traffic Facility Detection）**，本分支（`feat/458-images`）建置客製化 **6 類別、458 張影像**之標註資料集，並搭配 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model) 於 Google Colab 進行系統化深度學習消融實驗（`Exp 1 ~ Exp 10` Append-Only Ablation Study）與 4 維度誤差診斷分析。
+針對台灣市區道路情境中常見之**交通號誌、路面標線與交通標誌等關鍵交通設施偵測（Traffic Facility Detection）**，本分支建置客製化 **6 類別、458 張影像**之標註資料集，並搭配 [nchu-research-method-traffic-violation-model](https://github.com/contemplator/nchu-research-method-traffic-violation-model) 於 Google Colab 進行系統化深度學習消融實驗與 4 維度誤差診斷分析。
+
+---
+
+## 🌐 Live Demo 線上互動展示
+
+👉 **立即體驗：[https://traffic-yolo.hung.services/](https://traffic-yolo.hung.services/)**
+
+[![NCHU YOLOv7 Live Demo 截圖](docs/live_demo_screenshot.jpg)](https://traffic-yolo.hung.services/)
+
+- **純瀏覽器端本地推論（ONNX Runtime Web）**：優先啟用 **WebGPU** 加速（自動降級 WASM），圖片與影片全程於使用者裝置本地運算、無需後端 GPU 算力。
+- **三模型並排即時對比**：同步比較 **Exp 5（Tiny-640）**、**Exp 7（Base-640）** 與 **Exp 12（Tiny-960 + 瀏覽器端 LAB-CLAHE）** 的標記結果與推論耗時（`ms` / 等效 `FPS`）。
+- **圖片與 30 秒內 MP4 同步回放**：支援拖曳上傳或一鍵試測獨立 Test 集影像；影片採預分析快取，完成後可同步來回拖拉時間軸與單幀步進。
+- **即時互動控制**：內建各模型 Validation-First 黃金信心門檻（`0.45 / 0.35 / 0.60`）滑桿與 6 大交通設施類別開關，調整後直接從快取重繪免重算。
+
+> 前端原始碼與打包說明請參閱 [web/README.md](web/README.md)，模型轉檔腳本請見 [scripts/export_web_onnx.py](scripts/export_web_onnx.py)。
 
 ---
 
@@ -26,13 +42,16 @@ nchu-research-method-traffic-violation-dataset/
 │   ├── hyp.traffic_highres.yaml               # 960 高解析度版超參數設定檔 (供 Exp 8 使用)
 │   └── hyp.traffic_v2.yaml                    # 領域進階版 v2 超參數設定檔 (供 Exp 9, Exp 10 使用)
 ├── docs/
-│   └── NEXT_STAGE_EXPERIMENT_PLAN.md          # 458 張完整資料集與 Exp 1~10 消融實驗規劃書
+│   ├── NEXT_STAGE_EXPERIMENT_PLAN.md          # 458 張完整資料集與消融實驗規劃書
+│   └── live_demo_screenshot.jpg               # Live Demo 三模型 WebGPU 對比截圖
 ├── scripts/
 │   ├── extract_frames.py                      # 行車記錄器影片定頻抽幀工具
 │   ├── verify_annotations.py                  # 標註格式合規性檢查、類別分佈與負樣本防呆工具
 │   ├── split_dataset.py                       # 7:2:1 (Train/Val/Test) 隨機切分與自動打包工具
 │   ├── preprocess_clahe.py                    # LAB 色彩空間 L 通道 CLAHE 對比度增強工具
-│   └── analyze_test_results.py                # 總對照表、4 象限收斂圖、4 維度誤差與推論對比矩陣工具
+│   ├── analyze_test_results.py                # 總對照表、4 象限收斂圖、4 維度誤差與推論對比矩陣工具
+│   └── export_web_onnx.py                     # 將 Exp 5 / Exp 7 / Exp 12 best.pt 匯出為瀏覽器 ONNX 模型
+├── web/                                       # 純瀏覽器端 ONNX Runtime Web 三模型即時對比網站原始碼
 ├── notebooks/
 │   └── NCHU_Research_YOLOv7.ipynb             # Google Colab 雲端訓練、評估與消融分析標準筆記本
 ├── data/
@@ -120,7 +139,7 @@ python scripts/split_dataset.py
   2. 依 7:2:1 比例隨機切分至 `data/dataset/train/`、`val/`、`test/`（320 / 91 / 47）。
   3. 自動使用純 Python 壓縮打包產出 **`data/dataset.zip`**（跨平台標準，內含標準 `dataset/` 頂層結構，免除手動 zip 操作）。
 
-### 5. LAB-CLAHE 局部對比度增強（選用，供 Exp 10）
+### 5. LAB-CLAHE 局部對比度增強（選用，供 Exp 10 / Exp 12 / Exp 13）
 針對逆光、樹蔭與夜間低對比度場景，可於 LAB 色彩空間之 `L` 通道套用 `CLAHE (clipLimit=2.0, tileGridSize=(8,8))`，輸出獨立副本至 `data/dataset_clahe/`（不覆蓋原圖，於 Colab 流程中亦會自動執行）：
 ```bash
 python scripts/preprocess_clahe.py
@@ -130,7 +149,7 @@ python scripts/preprocess_clahe.py
 
 ## 🔬 消融實驗規劃 (Ablation Study Matrix)
 
-本分支採用 **Append-Only 消融實驗架構（`Exp 1 ~ Exp 10`）**，完整保留歷史基準設定（`Exp 1 ~ Exp 6`），並往後累加高解析度、領域超參數 v2 與 LAB-CLAHE 前處理等進階實驗（`Exp 7 ~ Exp 10`）。詳細設計原則請參閱 [docs/NEXT_STAGE_EXPERIMENT_PLAN.md](docs/NEXT_STAGE_EXPERIMENT_PLAN.md)。
+本分支採用 **Append-Only 消融實驗架構（`Exp 1 ~ Exp 13`）**，完整保留歷史基準設定（`Exp 1 ~ Exp 6`），並往後累加高解析度、領域超參數 v2、LAB-CLAHE 前處理與 Tiny-960 突破組等進階實驗（`Exp 7 ~ Exp 13`）。詳細設計原則請參閱 [docs/NEXT_STAGE_EXPERIMENT_PLAN.md](docs/NEXT_STAGE_EXPERIMENT_PLAN.md)。
 
 ### 1. 保留基準組 (`Exp 1 ~ Exp 6`)
 
@@ -143,7 +162,7 @@ python scripts/preprocess_clahe.py
 | **Exp 5** | YOLOv7-tiny | 640 | 16 | 100 | `configs/hyp.scratch.custom.yaml` | 輕量模型領域調優 v1（對比 Exp 3 / Exp 4 並量測邊緣 FPS） |
 | **Exp 6** | YOLOv7 Base | 640 | 8 | 100 | `configs/hyp.scratch.custom.yaml` | 大骨幹 + 100 輪 + 領域調優 v1 |
 
-### 2. 進階對照組 (`Exp 7 ~ Exp 10`)
+### 2. 進階對照組 (`Exp 7 ~ Exp 13`)
 
 | 組別 | 模型架構 | 解析度 | Batch | Epochs | 超參數 / 前處理 | 核心對照關係與驗證假說 |
 | :---: | :--- | :---: | :---: | :---: | :--- | :--- |
@@ -151,6 +170,9 @@ python scripts/preprocess_clahe.py
 | **Exp 8** | YOLOv7 Base | **960** | 8 | 100 | `configs/hyp.traffic_highres.yaml` | 對比 Exp 6，單一解析度變因（`640 → 960`，微調 `lr0=0.005`）驗證遠距小標誌偵測效益 |
 | **Exp 9** | YOLOv7 Base | **960** | 8 | 100 | `configs/hyp.traffic_v2.yaml` | 對比 Exp 8，加入 Focal Loss (`fl_gamma=1.0`)、關閉水平翻轉 (`fliplr=0.0`)、降 `mosaic=0.5`、升 `box=0.075` 改善長尾混淆與標線定位 |
 | **Exp 10** | YOLOv7 Base | **960** | 8 | 100 | `configs/hyp.traffic_v2.yaml` + **LAB-CLAHE** | 對比 Exp 9，套用 LAB-CLAHE 局部對比度增強（`configs/traffic_facility_clahe.yaml`），驗證逆光／陰影／夜間場景召回提升 |
+| **Exp 11** | YOLOv7-tiny | **960** | 16 | 100 | `configs/hyp.scratch.custom.yaml` (v1) | 對比 Exp 5（`640 → 960`）與 Exp 8（Base vs. Tiny），驗證輕量骨幹搭配 960 高解析度於小資料集之突破效益（Test mAP@0.5 `57.3%`、F1 `64.0%`） |
+| **Exp 12** | YOLOv7-tiny | **960** | 16 | 100 | `configs/hyp.scratch.custom.yaml` (v1) + **LAB-CLAHE** | 對比 Exp 11，單一變因加上 LAB-CLAHE 對比度增強，達成全系列最高 Test mAP@0.5（**`60.9%`**）與 mAP@0.5:0.95（**`35.2%`**），且兼具高速推論（Pareto 最佳） |
+| **Exp 13** | YOLOv7-tiny | **960** | 8 | **150** | `configs/hyp.scratch.custom.yaml` (v1) + **LAB-CLAHE + Multi-Scale** | 對比 Exp 12，延長至 150 輪並開啟多尺度訓練（`--multi-scale`），進一步拉升 Recall（**`58.1%`**）與綜合評分（Pareto 最佳候選） |
 
 * **評估協議**：所有實驗皆採 **Validation-First Thresholding**（先於 Val 集 91 張透過 F1 Curve 決定最佳信心門檻 `best_conf`，再統一套用至 Test 集 47 張進行盲測），並自動產出 Master Benchmark 總表、4 象限收斂曲線、4 維度誤差分類統計（`FP`、`FN`、`Misclassification`、`Low IoU`）與同圖並排推論對比矩陣。
 
